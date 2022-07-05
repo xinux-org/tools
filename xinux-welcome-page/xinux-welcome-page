@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+
+set -e
+
+checklive=false
+xinuxlive=false
+url="https://oss.uzinfocom.uz/welcome-xinux"
+browser="chromium --start-maximized --app=%s"
+custombrowser=false
+nourlmode=false
+
+defaultbrowserlist=(
+    "microsoft-edge-dev --start-maximized --app=%s"
+    "vivaldi-stable --start-maximized --app=%s"
+    "brave --start-maximized --app=%s"
+    "firefox-developer-edition -url %s & xdotool search --sync --onlyvisible --class 'Firefox' windowactivate key F11"
+    "firefox -url %s & xdotool search --sync --onlyvisible --class 'Firefox' windowactivate key F11"
+    "chromium --start-maximized --app=%s"
+    "google-chrome  --start-maximized --app=%s"
+)
+
+remove () {
+    local _list
+    local _file
+    _list=($(echo "$@"))
+    for _file in "${_list[@]}"; do
+        if [[ -f ${_file} ]]; then
+            rm -f "${_file}"
+        elif [[ -d ${_file} ]]; then
+            rm -rf "${_file}"
+        fi
+    done
+}
+
+_help() {
+    echo "Displays the Xinux welcome page"
+    echo "usage xinux-welcome-page [options]"
+    echo
+    echo " General options:"
+    echo "    -b | --browser <cmd>  Specify the browser command."
+    echo "                          %s will be replaced with the URL"
+    echo "    -u | --url <url>      Set the URL."
+    echo "                          Default: ${url}"
+    echo "    -l | --live           Opens the page only in a live environment."
+    echo "                          Whether it is a live environment or not is determined"
+    echo "                          by the presence or absence of the installer."
+    echo "    --xinuxlive           Delete the startup file for the live environment."
+    echo "    -h | --help           This help message and exit."
+    echo
+    echo "%s is replaces with the URL"
+    echo " Browser list:"
+    local _browser _browser_count
+    for ((_browser_count = 0; _browser_count < ${#defaultbrowserlist[@]}; _browser_count++)); do
+        echo "    ${defaultbrowserlist[${_browser_count}]}"
+    done
+}
+
+_msg_error() {
+    echo "${@}" >&2
+}
+
+_msg_warn() {
+    echo "${@}" >&2
+}
+
+# Argument analysis and processing
+options="${@}"
+_opt_short="b:u:lh"
+_opt_long="browser:,url:,live,help,xinuxlive,aobuta"
+OPT=$(getopt -o ${_opt_short} -l ${_opt_long} -- "${@}")
+if [[ ${?} != 0 ]]; then
+    exit 1
+fi
+
+eval set -- "${OPT}"
+unset OPT
+unset _opt_short
+unset _opt_long
+
+while true; do
+    case ${1} in
+        -b | --browser)
+            browser="${2}"
+            custombrowser=true
+            shift 2
+            ;;
+        -l | --live)
+            checklive=true
+            shift 1
+            ;;
+        -u | --url)
+            url="${2}"
+            shift 2
+            ;;
+        -h | --help)
+            _help
+            shift 1
+            exit 0
+            ;;
+        --aobuta)
+            url="https://ao-buta.com/"
+            shift 1
+            ;;
+        --xinuxlive)
+            xinuxlive=true
+            shift 1
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            _msg_error "Invalid argument '${1}'"
+            _help
+            exit 1
+            ;;
+    esac
+done
+
+# ライブ環境から実行されているかチェックします
+check_livecd(){
+    if [[ -d "/run/archiso" ]] || grep "^archisobasedir=" "/proc/cmdline" 2> /dev/null 1>&2; then
+        return 0
+    fi
+    return 1
+}
+
+if [[ "${checklive}" = true ]] && check_livecd; then
+    exit 0
+fi
+
+# ブラウザが指定されていないなら一覧から自動で検出する
+if [[ "${custombrowser}" = false ]]; then
+    defaultbrowserlist+=("END_OF_LIST")
+    for ((_browser_count = 0; _browser_count < ${#defaultbrowserlist[@]}; _browser_count++)); do
+        _browser="${defaultbrowserlist[${_browser_count}]}"
+        if [[ -f $(type -P "$(echo ${_browser} | awk '{print $1}')") ]]; then
+            browser="${_browser}"
+            break
+        elif [[ "${_browser}" == "END_OF_LIST" ]]; then
+            _msg_error "No available browser is installed."
+            exit 1
+        fi
+    done
+elif [[ -z "$(echo "${browser}" | grep "%s")" ]]; then
+    # -bで%sが指定されていないならコマンドの後にURLを付ける
+    nourlmode=true
+fi
+
+if [[ "${nourlmode}" = true ]]; then
+    _msg_warn "Directly executed with URL as an argument because %s was not specified."
+    eval ${browser} ${url} &
+else
+    eval $(printf "${browser}" "${url}") &
+fi
+
+if [[ "${xinuxlive}" = true ]]; then
+    remove "${HOME}/.config/autostart/welcome_page.desktop"
+fi

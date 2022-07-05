@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -eu
+
+infofile="/run/archiso/bootmnt/xinuxiso-info"
+shellmode=false
+only=""
+
+_help() {
+    echo "usage ${0} [options] [value]"
+    echo
+    echo " General options:"
+    echo "    -f | --file [path]  Specify the file to read"
+    echo "    -s | --shell        Enable shell mode"
+    echo "    -h | --help         This help message and exit."
+}
+
+# Argument analysis and processing
+ARGUMENT=("${@}")
+OPTS=("h" "f:" "s")
+OPTL=("help" "file:" "shell")
+if ! OPT=$(getopt -o "$(printf "%s," "${OPTS[@]}")" -l "$(printf "%s," "${OPTL[@]}")" -- "${ARGUMENT[@]}"); then
+    exit 1
+fi
+
+eval set -- "${OPT}"
+unset ARGUMENT OPTS OPTL OPT
+
+while true; do
+    case "${1}" in
+        -s | --shell)
+            shellmode=true
+            shift 1
+            ;;
+        -f | --file)
+            infofile="${2}"
+            shift 2
+            ;;
+        -h | --help)
+            _help
+            shift 1
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Invalid argument '${1}'" >&2
+            _help
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -n "${1+SET}" ]]; then
+    only="${1}"
+    shellmode=true
+    shift 1
+fi
+
+if [[ ! -f "${infofile}" ]]; then
+    echo "${infofile} was not found." >&2
+    exit 1
+fi
+
+
+if [[ "${shellmode}" = false ]]; then
+    cat "${infofile}"
+else
+    items=()
+    for _item in $(cut -d ':' -f 1 < "${infofile}" | sed "s|^ *||g; s| *$||g" |sed 's| \+|_|g' | tr '[:upper:]' '[:lower:]'); do
+        items+=("${_item}")
+    done
+    unset _item
+
+    values=()
+    PREV_IFS="${IFS}"
+    IFS=$'\n'
+    readarray -t values < <(cut -d ':' -f 2- < "${infofile}" | sed "s|^ *||g; s| *$||g" | grep -v ^$ )
+    line_number=$(( "$(wc -l < "${infofile}")" - 1 ))
+    IFS="${PREV_IFS}"
+
+    for line in $(seq 0 "${line_number}"); do
+        if [[ -z "${only}" ]]; then
+            echo "${items[${line}]}=\"${values[${line}]}\""
+        elif [[ "${only}" = "${items[${line}]}" ]]; then
+            echo "${values[${line}]}"
+            break
+        fi
+    done
+fi
