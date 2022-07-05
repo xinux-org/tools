@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+
+set -e
+
+force=false
+uzinfocomlive=false
+simulation=false
+bookmark_file="${HOME}/.config/gtk-3.0/bookmarks"
+backup_dir="${bookmark_file}.d/"
+
+# Show message when file is removed
+# remove <file> <file> ...
+remove() {
+    rm -rf "${@}"
+}
+
+_help() {
+    echo "usage ${0} [options] [command]"
+    echo
+    echo " General options:"
+    echo "    -f | --force          Force overwriting"
+    echo "    -s | --simulation     Enable simulation"
+    echo "    -h | --help           This help message and exit"
+    echo "         --bakdir [dir]   Specify the directory used for backup and restore"
+    echo
+    echo " General command:"
+    echo "    add <dir> <name> ...  Add a item to the sidebar"
+    echo "    delete <dir> ...      Delete item from the sidebar"
+    echo "    alldelete             Delete all sidebar items"
+    echo "    init                  Initializes the sidebar"
+    echo "    backup                Backup sidebar"
+    echo "    restore               Restore bookmark from backup"
+    echo "    edit                  Edit bookmark file (with EDITOR variable)"
+    echo "    help                  This help message and exit"
+}
+
+_ask(){
+    local arg OPTARG OPTIND _default="" _choice_list _count _choice _question
+    while getopts "d:p:" arg; do
+        case "${arg}" in
+            d) _default="${OPTARG}" ;;
+            p) _question="${OPTARG}" ;;
+            *) exit 1 ;;
+        esac
+    done
+    shift "$((OPTIND - 1))"
+    _choice_list=("${@}")
+    _digit="${##}"
+
+    if (( ${#_choice_list[@]} < 0 )); then
+        _msg_error "An exception error has occurred."
+        exit 1
+    fi
+
+    if (( ${#_choice_list[@]} <= 1 )); then
+        echo "${_choice_list[*]}"
+        return 0
+    fi
+
+    if [[ -v _question ]] && [[ ! "${_question}" = "" ]]; then
+        echo -e "${_question}" >&2
+    fi
+
+    for (( _count=1; _count<=${#_choice_list[@]}; _count++)); do
+        _choice="${_choice_list[$(( _count - 1 ))]}"
+        if [[ ! "${_default}" = "" ]] && [[ "${_choice}" = "${_default}" ]]; then
+            printf " * %${_digit}d: ${_choice}\n" "${_count}" >&2
+        else
+            printf "   %${_digit}d: ${_choice}\n" "${_count}" >&2
+        fi
+        unset _choice
+    done
+    echo -n "(1 ~ ${#_choice_list[@]}) > " >&2
+    read -r _input
+
+    if printf "%s" "${_input}" | grep -E "^[0-9]+$" 1>/dev/null 2>&1; then
+        if (( 1 <= _input)) && (( _input <= ${#_choice_list[@]} )); then
+            _choice="${_choice_list[$(( _input - 1 ))]}"
+        else
+            return 1
+        fi
+    else
+        if printf "%s\n" "${_choice_list[@]}" | grep -x "${_input}" 1>/dev/null 2>&1; then
+            _choice="${_input}"
+        else
+            return 1
+        fi
+    fi
+    echo "${_choice}"
+    return 0
+}
+
+output() {
+    if [[ "${simulation}" = true ]]; then
+        echo "${@}"
+    else
+        echo "${@}" >> "${bookmark_file}"
+    fi
+}
+
+_msg_error() {
+    echo "${@}" >&2
+}
+
+prepare() {
+    if [[ ! -d "$(dirname "${bookmark_file}")" ]]; then
+        mkdir -p "$(dirname "${bookmark_file}")"
+    fi
+    if [[ ! -f "${bookmark_file}" ]]; then
+        touch "${bookmark_file}"
+    fi
+}
+
+add() {
+
+    if [[ "${simulation}" = false ]]; then
+        prepare
+    fi
+    local name dir
+    while true; do
+        if [[ -z "${1+SET}" ]]; then
+            return 0
+        fi
+        if [[ -d "${1}" ]]; then
+            dir="$(realpath "${1}" || exit 1)"
+            shift 1
+            if [[ -n "${1+SET}" ]] && [[ ! -d "${1}" ]]; then
+                name="${1}"
+                shift 1
+            else
+                name="$(basename "${dir}")"
+            fi
+        else
+            _msg_error "${dir} does not exist."
+            exit 1
+        fi
+        echo "Added bookmark ${dir} as ${name}"
+        output "file://${dir} ${name}"
+
+    done
+}
+
+
+delete() {
+    if [[ ! -f "${bookmark_file}" ]]; then
+        _msg_error "Bookmark file does not exist."
+        exit 1
+    fi
+    local _dir _count _line_contain _remove_line=() _url _remove_count i=1 _name
+    for (( i = 1; i <= "${#}"; i++)); do
+        cd "${PWD}"
+        _dir="$(eval echo '$'${i})"
+        _url="$(realpath "${_dir}" | sed "s/ /%20/g")"
+        cd "${OLDPWD}"
+
+        # Check file path
+        for _count in $(seq 1 "$(cat "${bookmark_file}" | wc -l )"); do
+            _line_contain="$(cat "${bookmark_file}" | head -n "${_count}" | tail -n 1 | cut -d ' ' -f 1)"
+            _line_contain="${_line_contain#file://}"
+            if [[ "${_url}" = "${_line_contain}" ]] || [[ "${_url}" = "file://${_line_contain}" ]] || [[ "${_url}/" = "${_line_contain}" ]] || [[ "${_url}/" = "file://${_line_contain}" ]]; then
+                _remove_line+=("${_count}")
+            fi
+        done
+
+        # Check name
+        _name="$(eval echo '$'${i})"
+        for _count in $(seq 1 "$(cat "${bookmark_file}" | wc -l )"); do
+            _line_contain="$(cat "${bookmark_file}" | head -n "${_count}" | tail -n 1)"
+            if (( "$(echo "${_line_contain}" | awk '{print NF}')" == 1 )); then
+                _line_contain="$(basename "${_line_contain#file://}")"
+            else
+                _line_contain="$(echo "${_line_contain}" | rev | cut -d ' ' -f 1 | rev)"
+            fi
+            if [[ "${_name}" = "${_line_contain}" ]]; then
+                _remove_line+=("${_count}")
+            fi
+        done
+
+        # Run delete
+        _remove_count=0
+        if (( "${#_remove_line[@]}" == 0 )); then
+            _msg_error "${_dir} is not registered in the sidebar."
+            continue
+        fi
+        for _count in "${_remove_line[@]}"; do
+            if [[ "${simulation}" = true ]]; then
+                sed "${_count}d" "${bookmark_file}"
+            else
+                _count="$(( _count - _remove_count ))"
+                sed -i "${_count}d" "${bookmark_file}"
+                _remove_count="$(( _remove_count + 1 ))"
+            fi
+        done
+    done
+}
+
+init() {
+    if [[ "${simulation}" = false ]]; then
+        remove "${bookmark_file}"
+        prepare
+    fi
+
+    source "${HOME}/.config/user-dirs.dirs"
+
+    init_dirs=(
+        "${XDG_DOCUMENTS_DIR}"
+        "${XDG_DOWNLOAD_DIR}"
+        "${XDG_MUSIC_DIR}"
+        "${XDG_PICTURES_DIR}"
+        "${XDG_VIDEOS_DIR}"
+    )
+
+    local dir
+    for dir in "${init_dirs[@]}"; do
+        output "file://${dir} $(basename "${dir}")"
+    done
+}
+
+backup(){
+    if [[ ! -f "${bookmark_file}" ]]; then
+        echo "Initialize with the init command or add the directory with the add command."
+        exit 1
+    fi
+    mkdir -p "${backup_dir}"
+    local path="${backup_dir}/$(date +%s).bak"
+    cp "${bookmark_file}" "${path}"
+    echo "Backuped to ${path}"
+}
+
+restore(){
+    local backups=() target_date target_path
+    readarray -t backups < <(find "${backup_dir}" -mindepth 1 -maxdepth 1  -name "*.bak" -type f -printf "%f\0" | xargs -0 -I{} bash -c 'echo {} | sed "s|.bak$||g"' | xargs -I{} date --date "@{}" "+%Y/%m/%d %T")
+    if (( "${#backups[@]}" == 0 )); then
+        _msg_error "Backup was not found"
+        exit 1
+    fi
+    if [[ -f "${bookmark_file}" ]] && [[ "${force}" = false ]] && [[ "${simulation}" = false ]] && [[ -n "$(cat "${bookmark_file}" 2>/dev/null)" ]]; then
+        _msg_error "The sidebar already exists. Use -f to force restore."
+        exit 1
+    fi
+    if ! target_date=$(_ask -p "Select the backup you want to use" "${backups[@]}"); then
+        exit 1
+    else
+        target_path="${backup_dir}/$(date -d "${target_date}" +%s).bak"
+        if [[ -f "${target_path}" ]]; then
+            remove "${bookmark_file}"
+            cp "${target_path}" "${bookmark_file}"
+        else
+            _msg_error "A backup that does not exist was selected."
+            exit 1
+        fi
+    fi
+
+}
+
+edit(){
+    local _editor="${EDITOR-"vi"}"
+    eval "${_editor}" "${bookmark_file}"
+}
+
+# Argument analysis and processing
+ARGUMENT=("${@}")
+OPTS=("f" "h" "s")
+OPTL=("force" "help" "uzinfocomlive" "t-mart" "takebayashi" "simulation" "xinuxlive" "bakdir:")
+if ! OPT=$(getopt -o "$(printf "%s," "${OPTS[@]}")" -l "$(printf "%s," "${OPTL[@]}")" -- "${ARGUMENT[@]}"); then
+    exit 1
+fi
+
+eval set -- "${OPT}"
+unset ARGUMENT OPTS OPTL OPT
+
+
+while true; do
+    case "${1}" in
+        -s | --simulation)
+            simulation=true
+            shift 1
+            ;;
+        -f | --force)
+            force=true
+            shift 1
+            ;;
+        -h | --help)
+            _help
+            shift 1
+            exit 0
+            ;;
+        --uzinfocomlive | --xinuxlive)
+            uzinfocomlive=true
+            shift 1
+            ;;
+        --bakdir)
+            backup_dir="${2}"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            _msg_error "Invalid argument '${1}'"
+            _help
+            exit 1
+            ;;
+    esac
+done
+
+mode="${1}"
+
+case "${mode}" in
+    add) 
+        shift 1
+        if [[ -z "${*}" ]]; then
+            _msg_error "Please specify a directory."
+            exit 1
+        else
+            add "${@}"
+        fi
+        exit 0
+        ;;
+    alldelete)
+        shift 1
+        if [[ "${simulation}" = false ]]; then
+            remove "${bookmark_file}"
+        fi
+        ;;
+    init)
+        shift 1
+        if [[ -f "${bookmark_file}" ]] && [[ "${force}" = false ]] && [[ "${simulation}" = false ]] && [[ -n "$(cat "${bookmark_file}" 2>/dev/null)" ]]; then
+            _msg_error "The sidebar already exists. Use -f to force initialization."
+            exit 1
+        else
+            init
+        fi
+        ;;
+    delete)
+        shift 1
+        if [[ -z "${*}" ]]; then
+            _msg_error "Please specify a directory."
+            exit 1
+        else
+            delete "${@}"
+        fi
+        exit 0
+        ;;
+    backup)
+        shift 1
+        backup
+        ;;
+    restore)
+        shift 1
+        restore
+        ;;
+    edit)
+        shift 1
+        edit
+        ;;
+    help)
+        shift 1
+        _help
+        ;;
+    *)
+        _msg_error "Please specify a command."
+        exit 1
+        ;;
+esac
+
+if [[ "${uzinfocomlive}" = true ]]; then
+    remove "${HOME}/.config/autostart/gensidebar.desktop"
+fi
