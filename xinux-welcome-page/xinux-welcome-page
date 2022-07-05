@@ -117,7 +117,6 @@ while true; do
     esac
 done
 
-# ライブ環境から実行されているかチェックします
 check_livecd(){
     if [[ -d "/run/archiso" ]] || grep "^archisobasedir=" "/proc/cmdline" 2> /dev/null 1>&2; then
         return 0
@@ -129,7 +128,6 @@ if [[ "${checklive}" = true ]] && check_livecd; then
     exit 0
 fi
 
-# ブラウザが指定されていないなら一覧から自動で検出する
 if [[ "${custombrowser}" = false ]]; then
     defaultbrowserlist+=("END_OF_LIST")
     for ((_browser_count = 0; _browser_count < ${#defaultbrowserlist[@]}; _browser_count++)); do
@@ -143,7 +141,6 @@ if [[ "${custombrowser}" = false ]]; then
         fi
     done
 elif [[ -z "$(echo "${browser}" | grep "%s")" ]]; then
-    # -bで%sが指定されていないならコマンドの後にURLを付ける
     nourlmode=true
 fi
 
