@@ -1,0 +1,16 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=1.0
+Icon=/usr/share/icons/hicolor/scalable/apps/xinux.svg
+Exec=/usr/bin/xinux-welcome-page
+Type=Application
+StartupNotify=false
+Terminal=false
+Hidden=false
+
+Name=Welcome to Xinux
+Comment=Displays the Xinux welcome page.
+
+Name[uz]=Xinux ga Xush Kelibsiz
+GenericName[uz]=Xinux
+Comment[uz]=Xinux kirish sahifasi.
