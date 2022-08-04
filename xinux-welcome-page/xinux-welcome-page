@@ -97,8 +97,8 @@ while true; do
             shift 1
             exit 0
             ;;
-        --aobuta)
-            url="https://ao-buta.com/"
+        --kikuo)
+            url="https://www.youtube.com/watch?v=NTrm_idbhUk"
             shift 1
             ;;
         --xinuxlive)
