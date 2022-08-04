@@ -97,8 +97,8 @@ while true; do
             shift 1
             exit 0
             ;;
-        --kikuo)
-            url="https://www.youtube.com/watch?v=NTrm_idbhUk"
+        --miku)
+            url="https://www.youtube.com/watch?v=fmrA-gxJxgQ"
             shift 1
             ;;
         --roll)
