@@ -101,6 +101,10 @@ while true; do
             url="https://www.youtube.com/watch?v=NTrm_idbhUk"
             shift 1
             ;;
+        --roll)
+            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            shift 1
+            ;;
         --xinuxlive)
             xinuxlive=true
             shift 1
