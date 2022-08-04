@@ -4,7 +4,7 @@ set -e
 
 checklive=false
 xinuxlive=false
-url="https://oss.uzinfocom.uz/welcome-xinux"
+url="https://xinux.uz/thanks"
 browser="chromium --start-maximized --app=%s"
 custombrowser=false
 nourlmode=false
