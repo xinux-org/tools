@@ -75,7 +75,7 @@ if [[ "${xinuxlive}" = true ]]; then
 fi
 
 if [[ "${checklive}" = true ]]; then
-    if ! pacman -Qq xinux-calamares 1> /dev/null 2> /dev/null; then
+    if [! pacman -Qq xinux-calamares 1> /dev/null 2> /dev/null] || [! pacman -Qq alterlinux-calamares 1> /dev/null 2> /dev/null]; then
         exit 0
     fi
 fi
